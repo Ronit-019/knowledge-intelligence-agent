@@ -1,0 +1,10 @@
+{
+  "document_id": "string",
+  "title": "string",
+  "department": "string",
+  "document_type": "policy|procedure|standard|guide",
+  "version": "string",
+  "effective_date": "YYYY-MM-DD",
+  "status": "active|superseded|draft",
+  "source": "string"
+}
