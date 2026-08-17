@@ -10,9 +10,6 @@ from services.embedding_service import EmbeddingService
 class RetrievalResult:
     """
     Represents one retrieved piece of evidence.
-
-    Keeps the retrieved document together with its
-    similarity score and important source metadata.
     """
 
     document: Document
@@ -38,16 +35,20 @@ class RetrievalResult:
     def page(self) -> int:
         return self.document.metadata["page"]
 
+    @property
+    def status(self) -> str:
+        return self.document.metadata["status"]
+
 
 class RetrievalService:
     """
-    Production retrieval layer.
+    Version-aware retrieval layer.
 
     Responsibilities:
-    - Convert user queries into embeddings
+    - Convert queries into embeddings
     - Search the vector store
-    - Rank relevant chunks
     - Apply similarity thresholds
+    - Exclude superseded documents
     - Return traceable evidence
     """
 
@@ -72,7 +73,7 @@ class RetrievalService:
         top_k: int = 5,
     ) -> list[RetrievalResult]:
         """
-        Retrieve the most relevant evidence for a query.
+        Retrieve relevant, active evidence for a query.
         """
 
         query = query.strip()
@@ -89,21 +90,41 @@ class RetrievalService:
             self.embedding_service.embed_text(query)
         )
 
+        # Retrieve extra candidates because some may be
+        # removed by thresholding or document-status filtering.
+        candidate_k = max(top_k * 3, 10)
+
         results = self.vector_store.search(
             query_embedding=query_embedding,
-            top_k=top_k,
+            top_k=candidate_k,
         )
 
         filtered_results = []
 
         for document, score in results:
-            if score >= self.similarity_threshold:
-                filtered_results.append(
-                    RetrievalResult(
-                        document=document,
-                        score=score,
-                    )
+
+            # Semantic relevance check
+            if score < self.similarity_threshold:
+                continue
+
+            # Current knowledge-base state check
+            status = document.metadata.get(
+                "status",
+                ""
+            ).strip().lower()
+
+            if status == "superseded":
+                continue
+
+            filtered_results.append(
+                RetrievalResult(
+                    document=document,
+                    score=score,
                 )
+            )
+
+            if len(filtered_results) >= top_k:
+                break
 
         return filtered_results
 
@@ -113,8 +134,7 @@ class RetrievalService:
         top_k: int = 5,
     ) -> bool:
         """
-        Check whether sufficient evidence exists
-        to answer a query.
+        Check whether sufficient current evidence exists.
         """
 
         results = self.search(

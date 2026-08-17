@@ -7,23 +7,31 @@ from ingestion.models import KnowledgeDocument
 
 
 class DocumentNormalizer:
-    """Normalize LangChain PDF documents into application documents."""
+    """
+    Normalize LangChain PDF documents into application documents.
+
+    The normalizer converts loader-specific Document objects into
+    the application's stable KnowledgeDocument model while preserving
+    document identity, versioning, provenance, and content integrity.
+    """
 
     FIELD_PATTERNS = {
-        "document_id": r"\*\*Document ID:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z ]+:\*\*|$)",
-        "department": r"\*\*Department:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z ]+:\*\*|$)",
-        "document_type": r"\*\*Document Type:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z ]+:\*\*|$)",
-        "version": r"\*\*Version:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z ]+:\*\*|$)",
-        "effective_date": r"\*\*Effective Date:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z ]+:\*\*|$)",
-        "status": r"\*\*Status:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z ]+:\*\*|$)",
-        "source": r"\*\*Source:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z ]+:\*\*|$)",
-        "supersedes": r"\*\*Supersedes:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z ]+:\*\*|$)",
+        "document_id": r"\*\*Document ID:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z][A-Za-z ]*:\*\*|$)",
+        "department": r"\*\*Department:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z][A-Za-z ]*:\*\*|$)",
+        "document_type": r"\*\*Document Type:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z][A-Za-z ]*:\*\*|$)",
+        "version": r"\*\*Version:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z][A-Za-z ]*:\*\*|$)",
+        "effective_date": r"\*\*Effective Date:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z][A-Za-z ]*:\*\*|$)",
+        "status": r"\*\*Status:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z][A-Za-z ]*:\*\*|$)",
+        "source": r"\*\*Source:\*\*\s*(.*?)(?=\s+\*\*[A-Za-z][A-Za-z ]*:\*\*|$)",
     }
 
     def normalize(
         self,
         document: Document,
     ) -> KnowledgeDocument:
+        """
+        Convert one LangChain Document into a KnowledgeDocument.
+        """
 
         metadata = self._resolve_metadata(document)
 
@@ -54,10 +62,14 @@ class DocumentNormalizer:
         self,
         document: Document,
     ) -> dict[str, str]:
+        """
+        Resolve metadata from native PDF metadata and structured
+        metadata embedded in the document content.
+        """
 
         text = document.page_content
 
-        metadata = {}
+        metadata: dict[str, str] = {}
 
         # ---------------------------------------------------------
         # Native PDF metadata
@@ -75,7 +87,6 @@ class DocumentNormalizer:
         # ---------------------------------------------------------
 
         for field, pattern in self.FIELD_PATTERNS.items():
-
             match = re.search(
                 pattern,
                 text,
@@ -83,21 +94,39 @@ class DocumentNormalizer:
             )
 
             if match:
-                value = match.group(1).strip()
-
-                value = value.replace(
-                    r"\:",
-                    ":",
+                value = self._clean_metadata_value(
+                    match.group(1)
                 )
 
-                metadata[field] = value
+                if value:
+                    metadata[field] = value
+
+        # ---------------------------------------------------------
+        # Supersedes
+        #
+        # This is intentionally handled separately because it is
+        # commonly the final metadata field before the document
+        # content begins.
+        # ---------------------------------------------------------
+
+        supersedes_match = re.search(
+            r"\*\*Supersedes:\*\*\s*([^\n]+)",
+            text,
+        )
+
+        if supersedes_match:
+            supersedes = self._clean_metadata_value(
+                supersedes_match.group(1)
+            )
+
+            if supersedes:
+                metadata["supersedes"] = supersedes
 
         # ---------------------------------------------------------
         # Fallback title
         # ---------------------------------------------------------
 
         if not metadata.get("title"):
-
             title_match = re.search(
                 r"^#\s+\*\*(.*?)\*\*",
                 text,
@@ -110,7 +139,7 @@ class DocumentNormalizer:
                 )
 
         # ---------------------------------------------------------
-        # Validate
+        # Validate required metadata
         # ---------------------------------------------------------
 
         required = {
@@ -137,9 +166,29 @@ class DocumentNormalizer:
         return metadata
 
     @staticmethod
+    def _clean_metadata_value(
+        value: str,
+    ) -> str:
+        """
+        Clean extracted metadata without modifying its meaning.
+        """
+
+        value = value.strip()
+
+        value = value.replace(
+            r"\:",
+            ":",
+        )
+
+        return value
+
+    @staticmethod
     def _clean_content(
         text: str,
     ) -> str:
+        """
+        Normalize whitespace while preserving document structure.
+        """
 
         text = re.sub(
             r"\n+",
