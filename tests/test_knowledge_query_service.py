@@ -1,5 +1,8 @@
 from dataclasses import dataclass
 
+from services.answer_generation_service import (
+    GeneratedAnswer,
+)
 from services.evidence_selector import EvidenceSelection
 from services.knowledge_query_service import (
     KnowledgeQueryService,
@@ -10,7 +13,11 @@ from services.knowledge_query_service import (
 class FakeRetrievalService:
     results: list
 
-    def search(self, query: str, top_k: int = 5):
+    def search(
+        self,
+        query: str,
+        top_k: int = 5,
+    ):
         if not query.strip():
             raise ValueError(
                 "Query cannot be empty."
@@ -21,7 +28,10 @@ class FakeRetrievalService:
 
 class FakeEvidenceSelector:
 
-    def select(self, results):
+    def select(
+        self,
+        results,
+    ):
         return EvidenceSelection(
             results=results
         )
@@ -33,37 +43,35 @@ class FakeAnswerGenerationService:
         self.received_query = None
         self.received_evidence = None
 
-    def generate(self, query, evidence):
+    def generate(
+        self,
+        query,
+        evidence,
+    ):
         self.received_query = query
         self.received_evidence = evidence
 
         if evidence.count == 0:
-            return type(
-                "GeneratedAnswer",
-                (),
-                {
-                    "answer": (
-                        "I couldn't find enough information "
-                        "in the available documents to answer "
-                        "this question."
-                    ),
-                    "grounded": False,
-                    "sources": evidence,
-                },
-            )()
-
-        return type(
-            "GeneratedAnswer",
-            (),
-            {
-                "answer": (
-                    "The employee may work internationally "
-                    "for up to 90 days."
+            return GeneratedAnswer(
+                query=query,
+                answer=(
+                    "I couldn't find enough information "
+                    "in the available documents to answer "
+                    "this question."
                 ),
-                "grounded": True,
-                "sources": evidence,
-            },
-        )()
+                grounded=False,
+                sources=evidence,
+            )
+
+        return GeneratedAnswer(
+            query=query,
+            answer=(
+                "The employee may work internationally "
+                "for up to 90 days."
+            ),
+            grounded=True,
+            sources=evidence,
+        )
 
 
 def build_service(results):
@@ -113,6 +121,7 @@ def test_supported_query():
     assert result.source_count == 1
 
     assert generator.received_query == query
+
     assert (
         generator.received_evidence
         is result.sources
@@ -136,7 +145,10 @@ def test_empty_evidence():
     )
 
     assert generator.received_query == query
-    assert generator.received_evidence.count == 0
+
+    assert (
+        generator.received_evidence.count == 0
+    )
 
 
 def test_empty_query():
@@ -144,9 +156,11 @@ def test_empty_query():
 
     try:
         service.ask("   ")
+
         raise AssertionError(
             "Empty query should have been rejected."
         )
+
     except ValueError as exc:
         assert str(exc) == "Query cannot be empty."
 

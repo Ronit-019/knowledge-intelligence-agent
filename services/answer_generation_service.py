@@ -11,9 +11,19 @@ class GeneratedAnswer:
     Represents the final answer generated from selected evidence.
     """
 
+    query: str
     answer: str
     grounded: bool
     sources: EvidenceSelection
+
+    @property
+    def source_count(self) -> int:
+        """
+        Return the number of evidence sources used
+        to generate the answer.
+        """
+
+        return self.sources.count
 
 
 class AnswerGenerationService:
@@ -47,6 +57,7 @@ class AnswerGenerationService:
 
         if evidence.count == 0:
             return GeneratedAnswer(
+                query=query,
                 answer=(
                     "I couldn't find enough information in the "
                     "available documents to answer this question."
@@ -65,6 +76,7 @@ class AnswerGenerationService:
         )
 
         return GeneratedAnswer(
+            query=query,
             answer=answer,
             grounded=True,
             sources=evidence,
