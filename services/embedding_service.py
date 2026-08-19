@@ -1,5 +1,7 @@
 from sentence_transformers import SentenceTransformer
 
+from config import settings
+
 
 class EmbeddingService:
     """
@@ -12,16 +14,27 @@ class EmbeddingService:
 
     def __init__(
         self,
-        model_name: str = "BAAI/bge-small-en-v1.5",
+        model_name: str | None = None,
     ):
-        self.model_name = model_name
-        self.model = SentenceTransformer(model_name)
+        self.model_name = (
+            model_name
+            or settings.embedding_model
+        )
 
-    def embed_text(self, text: str) -> list[float]:
+        self.model = SentenceTransformer(
+            self.model_name
+        )
+
+    def embed_text(
+        self,
+        text: str,
+    ) -> list[float]:
         """Generate an embedding for a single text."""
 
         if not text or not text.strip():
-            raise ValueError("Cannot embed empty text.")
+            raise ValueError(
+                "Cannot embed empty text."
+            )
 
         embedding = self.model.encode(
             text,
@@ -37,9 +50,14 @@ class EmbeddingService:
         """Generate embeddings for multiple documents."""
 
         if not texts:
-            raise ValueError("Cannot embed an empty document list.")
+            raise ValueError(
+                "Cannot embed an empty document list."
+            )
 
-        if any(not text or not text.strip() for text in texts):
+        if any(
+            not text or not text.strip()
+            for text in texts
+        ):
             raise ValueError(
                 "Document list contains empty text."
             )

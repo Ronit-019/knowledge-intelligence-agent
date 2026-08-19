@@ -1,34 +1,47 @@
-from fastapi import FastAPI, HTTPException
+from contextlib import asynccontextmanager
 
-from api.dependencies import build_knowledge_query_service
+from fastapi import FastAPI, HTTPException, Request
+
+from api.dependencies import (
+    KnowledgeApplication,
+    build_knowledge_application,
+)
 from api.schemas import (
+    DocumentResponse,
+    DocumentsResponse,
     HealthResponse,
     QueryRequest,
     QueryResponse,
     SourceResponse,
 )
 
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """
+    Initialize the knowledge intelligence application
+    when the API starts.
+    """
+
+    app.state.knowledge_application = (
+        build_knowledge_application()
+    )
+
+    yield
+
+    # Reserved for future cleanup:
+    # vector stores, database connections,
+    # model resources, etc.
+
+
 app = FastAPI(
     title="Knowledge Intelligence API",
-    description="Grounded knowledge retrieval and question answering API.",
+    description=(
+        "Grounded knowledge retrieval and question answering API."
+    ),
     version="1.0.0",
+    lifespan=lifespan,
 )
-
-
-knowledge_query_service = None
-
-
-@app.on_event("startup")
-def startup() -> None:
-    """
-    Build the knowledge-query pipeline when the API starts.
-    """
-
-    global knowledge_query_service
-
-    knowledge_query_service = (
-        build_knowledge_query_service()
-    )
 
 
 @app.get(
@@ -51,19 +64,26 @@ def health() -> HealthResponse:
 )
 def query(
     request: QueryRequest,
+    http_request: Request,
 ) -> QueryResponse:
     """
     Ask a question against the active knowledge base.
     """
 
-    if knowledge_query_service is None:
+    application: KnowledgeApplication | None = getattr(
+        http_request.app.state,
+        "knowledge_application",
+        None,
+    )
+
+    if application is None:
         raise HTTPException(
             status_code=503,
             detail="Knowledge base is not initialized.",
         )
 
     try:
-        result = knowledge_query_service.ask(
+        result = application.query_service.ask(
             request.query
         )
 
@@ -85,7 +105,54 @@ def query(
                 version=source.version,
                 page=source.page,
                 score=source.score,
+                chunk_id=source.chunk_id,
             )
             for source in result.sources.results
+        ],
+    )
+
+
+@app.get(
+    "/documents",
+    response_model=DocumentsResponse,
+)
+def documents(
+    http_request: Request,
+) -> DocumentsResponse:
+    """
+    Return the active documents currently indexed
+    in the knowledge base.
+    """
+
+    application: KnowledgeApplication | None = getattr(
+        http_request.app.state,
+        "knowledge_application",
+        None,
+    )
+
+    if application is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Knowledge base is not initialized.",
+        )
+
+    active_documents = (
+        application.knowledge_base.documents
+    )
+
+    return DocumentsResponse(
+        count=len(active_documents),
+        documents=[
+            DocumentResponse(
+                document_id=document.document_id,
+                title=document.title,
+                department=document.department,
+                document_type=document.document_type,
+                version=document.version,
+                effective_date=document.effective_date,
+                status=document.status,
+                page=document.page,
+            )
+            for document in active_documents
         ],
     )

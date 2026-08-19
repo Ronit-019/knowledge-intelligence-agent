@@ -1,10 +1,8 @@
-import os
-from dotenv import load_dotenv
 from groq import Groq
 
+from config import settings
 from services.llm.base import LLMProvider
 
-load_dotenv()
 
 class GroqProvider(LLMProvider):
     """
@@ -13,25 +11,30 @@ class GroqProvider(LLMProvider):
 
     def __init__(
         self,
-        model_name: str = "openai/gpt-oss-20b",
+        api_key: str | None = None,
+        model_name: str | None = None,
     ):
-        api_key = os.getenv("GROQ_API_KEY")
+        self.api_key = (
+            api_key
+            or settings.groq_api_key
+        )
 
-        if not api_key:
-            raise ValueError(
-                "GROQ_API_KEY environment variable is not set."
-            )
-
-        self.model_name = model_name
+        self.model_name = (
+            model_name
+            or settings.llm_model
+        )
 
         self.client = Groq(
-            api_key=api_key,
+            api_key=self.api_key,
         )
 
     def generate(
         self,
         prompt: str,
     ) -> str:
+        """
+        Generate an answer from the configured Groq model.
+        """
 
         if not prompt or not prompt.strip():
             raise ValueError(

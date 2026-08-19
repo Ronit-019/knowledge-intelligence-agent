@@ -1,28 +1,57 @@
+from dataclasses import dataclass
 from pathlib import Path
 
+from config import settings
 from ingestion.chunker import DocumentChunker
 from ingestion.normalizer import DocumentNormalizer
 from registry.document_registry import DocumentRegistry
 
-from services.answer_generation_service import AnswerGenerationService
+from services.answer_generation_service import (
+    AnswerGenerationService,
+)
 from services.chunking_service import ChunkingService
 from services.embedding_service import EmbeddingService
 from services.evidence_selector import EvidenceSelector
 from services.ingestion_service import IngestionService
-from services.knowledge_base_service import KnowledgeBaseService
-from services.knowledge_query_service import KnowledgeQueryService
+from services.knowledge_base_service import (
+    KnowledgeBase,
+    KnowledgeBaseService,
+)
+from services.knowledge_query_service import (
+    KnowledgeQueryService,
+)
 from services.prompt_builder import PromptBuilder
 from services.retrieval_service import RetrievalService
 from services.llm.groq_provider import GroqProvider
 
 
-def build_knowledge_query_service() -> KnowledgeQueryService:
+@dataclass(frozen=True)
+class KnowledgeApplication:
     """
-    Build the complete knowledge-query application pipeline.
+    Fully initialized knowledge intelligence application.
     """
 
-    knowledge_base_path = Path(
-        "data/knowledge_base"
+    knowledge_base: KnowledgeBase
+    query_service: KnowledgeQueryService
+
+
+def build_knowledge_application() -> KnowledgeApplication:
+    """
+    Build the complete knowledge intelligence application.
+    """
+
+    # ---------------------------------------------------------
+    # Project paths
+    # ---------------------------------------------------------
+
+    project_root = Path(
+        __file__
+    ).resolve().parent.parent
+
+    knowledge_base_path = (
+        project_root
+        / "data"
+        / "knowledge_base"
     )
 
     # ---------------------------------------------------------
@@ -55,7 +84,9 @@ def build_knowledge_query_service() -> KnowledgeQueryService:
     # Embeddings
     # ---------------------------------------------------------
 
-    embedding_service = EmbeddingService()
+    embedding_service = EmbeddingService(
+        model_name=settings.embedding_model,
+    )
 
     # ---------------------------------------------------------
     # Knowledge Base
@@ -82,16 +113,19 @@ def build_knowledge_query_service() -> KnowledgeQueryService:
     )
 
     # ---------------------------------------------------------
-    # Evidence selection
+    # Evidence Selection
     # ---------------------------------------------------------
 
     evidence_selector = EvidenceSelector()
 
     # ---------------------------------------------------------
-    # Answer generation
+    # LLM Answer Generation
     # ---------------------------------------------------------
 
-    llm_provider = GroqProvider()
+    llm_provider = GroqProvider(
+        api_key=settings.groq_api_key,
+        model_name=settings.llm_model,
+    )
 
     prompt_builder = PromptBuilder()
 
@@ -101,11 +135,16 @@ def build_knowledge_query_service() -> KnowledgeQueryService:
     )
 
     # ---------------------------------------------------------
-    # Application query service
+    # Query Service
     # ---------------------------------------------------------
 
-    return KnowledgeQueryService(
+    query_service = KnowledgeQueryService(
         retrieval_service=retrieval_service,
         evidence_selector=evidence_selector,
         answer_generation_service=answer_generation_service,
+    )
+
+    return KnowledgeApplication(
+        knowledge_base=knowledge_base,
+        query_service=query_service,
     )
