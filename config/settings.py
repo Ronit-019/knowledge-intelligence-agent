@@ -61,10 +61,8 @@ class Settings:
         )
 
         self.enable_reranking = (
-            os.getenv(
-                "ENABLE_RERANKING",
-                "true",
-            ).lower()== "true"
+            os.getenv("ENABLE_RERANKING", "false").lower()
+            == "true"
         )
 
     @staticmethod

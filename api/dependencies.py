@@ -116,11 +116,13 @@ def build_knowledge_application() -> KnowledgeApplication:
     # Cross-Encoder Reranking
     # ---------------------------------------------------------
 
-    reranking_service = RerankingService(
-        top_k=settings.rerank_top_k,
-        min_rerank_score=settings.min_rerank_score,
-        enabled=settings.enable_reranking,
-    )
+    reranking_service = None
+
+    if settings.enable_reranking:
+        reranking_service = RerankingService(
+            top_k=settings.rerank_top_k,
+            min_rerank_score=settings.min_rerank_score,
+        )
 
     # ---------------------------------------------------------
     # Evidence Selection
