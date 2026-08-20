@@ -7,6 +7,10 @@ from services.retrieval_service import RetrievalResult
 class RerankingService:
     """
     Reranks semantic-retrieval candidates using a cross-encoder.
+
+    The cross-encoder is loaded lazily so the application can
+    start without loading the reranking model when reranking
+    is disabled.
     """
 
     def __init__(
@@ -14,6 +18,7 @@ class RerankingService:
         model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
         top_k: int | None = None,
         min_rerank_score: float | None = None,
+        enabled: bool | None = None,
     ):
         resolved_top_k = (
             top_k
@@ -36,9 +41,23 @@ class RerankingService:
         self.top_k = resolved_top_k
         self.min_rerank_score = resolved_min_rerank_score
 
-        self.model = CrossEncoder(
-            self.model_name
+        self.enabled = (
+            enabled
+            if enabled is not None
+            else settings.enable_reranking
         )
+
+        self.model = None
+
+    def _load_model(self) -> CrossEncoder:
+        """Load the cross-encoder only when reranking is used."""
+
+        if self.model is None:
+            self.model = CrossEncoder(
+                self.model_name
+            )
+
+        return self.model
 
     def rerank(
         self,
@@ -50,8 +69,8 @@ class RerankingService:
         Rerank retrieval candidates.
 
         The original semantic score is preserved.
-        The cross-encoder score is stored separately as
-        rerank_score.
+        The cross-encoder score is stored separately
+        as rerank_score.
         """
 
         query = query.strip()
@@ -64,6 +83,15 @@ class RerankingService:
         if not results:
             return []
 
+        if not self.enabled:
+            resolved_top_k = (
+                top_k
+                if top_k is not None
+                else self.top_k
+            )
+
+            return results[:resolved_top_k]
+
         resolved_top_k = (
             top_k
             if top_k is not None
@@ -75,6 +103,8 @@ class RerankingService:
                 "top_k must be greater than zero."
             )
 
+        model = self._load_model()
+
         pairs = [
             (
                 query,
@@ -83,9 +113,7 @@ class RerankingService:
             for result in results
         ]
 
-        scores = self.model.predict(
-            pairs
-        )
+        scores = model.predict(pairs)
 
         reranked = [
             RetrievalResult(
@@ -98,6 +126,7 @@ class RerankingService:
                 scores,
             )
         ]
+
         reranked.sort(
             key=lambda result: (
                 result.rerank_score

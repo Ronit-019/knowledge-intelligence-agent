@@ -60,6 +60,13 @@ class Settings:
             )
         )
 
+        self.enable_reranking = (
+            os.getenv(
+                "ENABLE_RERANKING",
+                "true",
+            ).lower()== "true"
+        )
+
     @staticmethod
     def _required(name: str) -> str:
         value = os.getenv(name)

@@ -119,6 +119,7 @@ def build_knowledge_application() -> KnowledgeApplication:
     reranking_service = RerankingService(
         top_k=settings.rerank_top_k,
         min_rerank_score=settings.min_rerank_score,
+        enabled=settings.enable_reranking,
     )
 
     # ---------------------------------------------------------
