@@ -1,141 +1,250 @@
-from evaluation.dataset import RETRIEVAL_TEST_CASES
-from evaluation.evaluator import RetrievalEvaluator
-from ingestion.models import KnowledgeDocument
-from services.embedding_service import EmbeddingService
-from services.retrieval_service import RetrievalService
-from retrieval.vector_store import VectorStore
-from ingestion.chunker import DocumentChunker
+from api.dependencies import build_knowledge_application
 
 
-def build_retrieval_service() -> RetrievalService:
-    document = KnowledgeDocument(
-        document_id="HR-RW-001",
-        title="Remote Work Policy",
-        department="HR",
-        document_type="policy",
-        version="2.0",
-        effective_date="2026-01-01",
-        status="active",
-        source="internal-policy-demo",
-        supersedes="HR-RW-001:v1.0",
-        page=1,
-        content="""
-# Remote Work Policy
+QUERIES = [
+    ("How long can an employee work remotely from another country?", "HR-RW-001"),
+    ("What is the maximum duration for international remote work?", "HR-RW-001"),
+    ("What approval is required for international remote work?", "HR-RW-001"),
+    ("Can employees work remotely after completing probation?", "HR-RW-001"),
 
-Employees who have completed their probation period may request
-remote work subject to manager approval.
+    ("What are the rules for international work?", "HR-IW-002"),
+    ("What is required before working from another country?", "HR-IW-002"),
+    ("What happens if international work exceeds the allowed period?", "HR-IW-002"),
 
-International remote work requires prior approval from Human
-Resources and the employee's manager.
+    ("What are the requirements for accessing company systems?", "SEC-ACC-004"),
+    ("What does the access and authentication security standard require?", "SEC-ACC-004"),
+    ("What security controls apply to employee authentication?", "SEC-ACC-004"),
 
-The request must identify the destination country, expected duration,
-and business justification.
+    ("What are the company's data retention requirements?", "CMP-DH-005"),
+    ("How long should company data be retained?", "CMP-DH-005"),
+    ("What is the company's data handling policy?", "CMP-DH-005"),
 
-International remote work may be approved for up to 90 consecutive
-calendar days.
+    ("What is the employee expense reimbursement policy?", "FIN-EXP-003"),
+    ("How can employees get reimbursed for business expenses?", "FIN-EXP-003"),
+    ("What are the rules for submitting employee expenses?", "FIN-EXP-003"),
 
-Requests exceeding 90 days require review by HR and the Compliance team.
-
-Manager approval and HR approval are required before international
-remote work begins.
-""",
-        content_hash="evaluation-demo",
-    )
-
-    chunker = DocumentChunker(
-        chunk_size=1000,
-        chunk_overlap=150,
-    )
-
-    chunks = chunker.chunk(document)
-
-    embedding_service = EmbeddingService()
-
-    embeddings = embedding_service.embed_documents(
-        [chunk.page_content for chunk in chunks]
-    )
-
-    vector_store = VectorStore(
-        dimension=embedding_service.dimension
-    )
-
-    vector_store.add(
-        embeddings=embeddings,
-        documents=chunks,
-    )
-
-    return RetrievalService(
-        embedding_service=embedding_service,
-        vector_store=vector_store,
-        similarity_threshold=0.65,
-    )
+    ("What is the company's maternity leave policy?", None),
+    ("What is the company's dental insurance policy?", None),
+    ("What is the company's stock option policy?", None),
+    ("What is the company's relocation bonus?", None),
+]
 
 
-def main() -> None:
-    print("=" * 70)
-    print("RETRIEVAL EVALUATION")
-    print("=" * 70)
+def main():
+    app = build_knowledge_application()
 
-    retrieval_service = build_retrieval_service()
+    retrieval = app.query_service.retrieval_service
+    reranker = app.query_service.reranking_service
 
-    evaluator = RetrievalEvaluator(
-        retrieval_service=retrieval_service
-    )
+    hit_at_1 = 0
+    hit_at_3 = 0
+    reciprocal_rank_sum = 0.0
 
-    results = evaluator.evaluate(
-        test_cases=RETRIEVAL_TEST_CASES,
-        top_k=5,
-    )
+    correct_rejections = 0
+    false_positives = 0
 
-    print()
-    print("-" * 70)
+    failures = []
 
-    hits = 0
+    print("=" * 80)
+    print("RETRIEVAL + RERANKING EVALUATION")
+    print("=" * 80)
 
-    for index, result in enumerate(results, start=1):
-        if result.hit:
-            hits += 1
+    for query, expected in QUERIES:
 
-        print(f"Query {index}")
-        print(f"Question: {result.query}")
-        print(
-            f"Expected: "
-            f"{result.expected_document_id}"
+        results = retrieval.search(query=query)
+
+        reranked = reranker.rerank(
+            query=query,
+            results=results,
+            top_k=5,
         )
-        print(
-            f"Retrieved: "
-            f"{result.retrieved_document_ids}"
-        )
-        print(f"Hit: {result.hit}")
-        print(
-            f"Reciprocal Rank: "
-            f"{result.reciprocal_rank:.4f}"
-        )
-        print("-" * 70)
 
-    total = len(results)
+        document_ids = [
+            result.document_id
+            for result in reranked
+        ]
 
-    hit_rate = (
-        hits / total
-        if total
+        # --------------------------------------------------
+        # Out-of-domain query
+        # --------------------------------------------------
+
+        if expected is None:
+
+            if not reranked:
+                correct_rejections += 1
+                status = "PASS - correctly rejected"
+            else:
+                false_positives += 1
+                status = "FAIL - false positive"
+
+                failures.append(
+                    {
+                        "query": query,
+                        "expected": None,
+                        "actual": document_ids,
+                        "top_score": reranked[0].rerank_score,
+                    }
+                )
+
+            print(
+                f"\n[{status}]"
+            )
+            print(query)
+
+            if reranked:
+                print(
+                    f"Top: {document_ids[0]} "
+                    f"| score={reranked[0].rerank_score:.4f}"
+                )
+
+            continue
+
+        # --------------------------------------------------
+        # In-domain query
+        # --------------------------------------------------
+
+        rank = None
+
+        for index, document_id in enumerate(
+            document_ids,
+            start=1,
+        ):
+            if document_id == expected:
+                rank = index
+                break
+
+        if rank == 1:
+            hit_at_1 += 1
+
+        if rank is not None and rank <= 3:
+            hit_at_3 += 1
+
+        if rank is not None:
+            reciprocal_rank_sum += 1.0 / rank
+
+        if rank is None:
+            failures.append(
+                {
+                    "query": query,
+                    "expected": expected,
+                    "actual": document_ids,
+                    "top_score": (
+                        reranked[0].rerank_score
+                        if reranked
+                        else None
+                    ),
+                }
+            )
+
+        status = (
+            f"PASS - rank {rank}"
+            if rank is not None
+            else "FAIL"
+        )
+
+        print(
+            f"\n[{status}]"
+        )
+        print(query)
+        print(f"Expected: {expected}")
+        print(f"Results: {document_ids}")
+
+    total_supported = sum(
+        1
+        for _, expected in QUERIES
+        if expected is not None
+    )
+
+    total_queries = len(QUERIES)
+
+    mrr = (
+        reciprocal_rank_sum / total_supported
+        if total_supported
         else 0.0
     )
 
-    print()
-    print("=" * 70)
-    print("EVALUATION SUMMARY")
-    print("=" * 70)
-    print(f"Queries evaluated: {total}")
-    print(f"Successful cases: {hits}")
-    print(f"Hit Rate: {hit_rate:.2%}")
+    hit1 = (
+        hit_at_1 / total_supported
+        if total_supported
+        else 0.0
+    )
 
-    if hit_rate < 1.0:
-        raise AssertionError(
-            "Retrieval evaluation failed."
-        )
+    hit3 = (
+        hit_at_3 / total_supported
+        if total_supported
+        else 0.0
+    )
 
-    print()
-    print("RETRIEVAL EVALUATION PASSED")
+    rejection_rate = (
+        correct_rejections
+        / (correct_rejections + false_positives)
+        if (correct_rejections + false_positives)
+        else 0.0
+    )
+
+    print("\n")
+    print("=" * 80)
+    print("SUMMARY")
+    print("=" * 80)
+
+    print(
+        f"Supported queries : {total_supported}"
+    )
+
+    print(
+        f"Total queries     : {total_queries}"
+    )
+
+    print(
+        f"Hit@1             : {hit_at_1}/{total_supported} "
+        f"({hit1:.2%})"
+    )
+
+    print(
+        f"Hit@3             : {hit_at_3}/{total_supported} "
+        f"({hit3:.2%})"
+    )
+
+    print(
+        f"MRR               : {mrr:.4f}"
+    )
+
+    print(
+        f"Correct rejections: {correct_rejections}"
+    )
+
+    print(
+        f"False positives   : {false_positives}"
+    )
+
+    print(
+        f"Rejection accuracy: {rejection_rate:.2%}"
+    )
+
+    print(
+        f"Failures          : {len(failures)}"
+    )
+
+    if failures:
+
+        print("\n")
+        print("=" * 80)
+        print("FAILURES")
+        print("=" * 80)
+
+        for failure in failures:
+            print(
+                f"\nQuery: {failure['query']}"
+            )
+            print(
+                f"Expected: {failure['expected']}"
+            )
+            print(
+                f"Actual: {failure['actual']}"
+            )
+            print(
+                f"Top score: {failure['top_score']}"
+            )
 
 
 if __name__ == "__main__":

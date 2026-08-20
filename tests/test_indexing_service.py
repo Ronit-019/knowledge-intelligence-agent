@@ -2,11 +2,11 @@ from pathlib import Path
 
 from langchain_pymupdf4llm import PyMuPDF4LLMLoader
 
-from ingestion.normalizer import DocumentNormalizer
 from ingestion.chunker import DocumentChunker
+from ingestion.normalizer import DocumentNormalizer
+from retrieval.vector_store import VectorStore
 from services.embedding_service import EmbeddingService
 from services.indexing_service import IndexingService
-from retrieval.vector_store import VectorStore
 
 
 KNOWLEDGE_BASE = Path(
@@ -55,6 +55,8 @@ def main():
 
     normalized_documents = load_documents()
 
+    assert normalized_documents
+
     print(
         f"\nNormalized documents: "
         f"{len(normalized_documents)}"
@@ -73,6 +75,8 @@ def main():
         chunks.extend(
             document_chunks
         )
+
+    assert chunks
 
     print(
         f"Total chunks: {len(chunks)}"
@@ -112,9 +116,27 @@ def main():
         f"{vector_store.size}"
     )
 
+    # --------------------------------------------------------------
+    # CONTRACT CHECKS
+    # --------------------------------------------------------------
+
     assert result.documents_indexed == len(chunks)
 
     assert vector_store.size == len(chunks)
+
+    assert (
+        result.embedding_dimension
+        == embedding_service.dimension
+    )
+
+    assert (
+        vector_store.dimension
+        == embedding_service.dimension
+    )
+
+    print("\nIndex count: OK")
+    print("Embedding dimension: OK")
+    print("Vector store size: OK")
 
     print("\n" + "=" * 70)
     print("MULTI-DOCUMENT INDEXING PASSED")

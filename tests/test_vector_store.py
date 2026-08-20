@@ -4,12 +4,8 @@ from services.embedding_service import EmbeddingService
 from retrieval.vector_store import VectorStore
 
 
-def main():
-    print("=" * 70)
-    print("VECTOR STORE + SEMANTIC RETRIEVAL")
-    print("=" * 70)
-
-    document = KnowledgeDocument(
+def build_document() -> KnowledgeDocument:
+    return KnowledgeDocument(
         document_id="HR-RW-001",
         title="Remote Work Policy",
         department="HR",
@@ -44,6 +40,14 @@ remote work begins.
         content_hash="test-hash",
     )
 
+
+def main():
+    print("=" * 70)
+    print("VECTOR STORE + SEMANTIC RETRIEVAL")
+    print("=" * 70)
+
+    document = build_document()
+
     # --------------------------------------------------------------
     # CHUNK
     # --------------------------------------------------------------
@@ -51,6 +55,12 @@ remote work begins.
     chunker = DocumentChunker()
 
     chunks = chunker.chunk(document)
+
+    assert chunks
+    assert all(
+        chunk.page_content.strip()
+        for chunk in chunks
+    )
 
     print(f"\nChunks created: {len(chunks)}")
 
@@ -65,6 +75,12 @@ remote work begins.
             chunk.page_content
             for chunk in chunks
         ]
+    )
+
+    assert len(embeddings) == len(chunks)
+    assert all(
+        len(embedding) == embedding_service.dimension
+        for embedding in embeddings
     )
 
     print(
@@ -84,6 +100,8 @@ remote work begins.
         embeddings=embeddings,
         documents=chunks,
     )
+
+    assert vector_store.size == len(chunks)
 
     print(
         f"Indexed documents: {vector_store.size}"
@@ -105,6 +123,31 @@ remote work begins.
         query_embedding=query_embedding,
         top_k=3,
     )
+
+    assert results
+    assert len(results) <= 3
+
+    # Results must be ranked highest to lowest.
+    scores = [
+        score
+        for _, score in results
+    ]
+
+    assert scores == sorted(
+        scores,
+        reverse=True,
+    )
+
+    # The top result should contain the key policy statement.
+    top_document, top_score = results[0]
+
+    assert (
+        "90 consecutive" in
+        top_document.page_content
+    )
+
+    assert top_score >= -1.0
+    assert top_score <= 1.0
 
     print("\n" + "-" * 70)
     print("QUERY")
@@ -137,6 +180,16 @@ remote work begins.
         )
         print("\nContent:")
         print(document.page_content)
+
+    # --------------------------------------------------------------
+    # CLEAR
+    # --------------------------------------------------------------
+
+    vector_store.clear()
+
+    assert vector_store.size == 0
+
+    print("\nVector store clear: OK")
 
     print("\n" + "=" * 70)
     print("VECTOR RETRIEVAL TEST PASSED")

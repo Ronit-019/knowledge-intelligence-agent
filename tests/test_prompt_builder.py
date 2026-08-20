@@ -26,7 +26,7 @@ def main():
 
     result = RetrievalResult(
         document=document,
-        score=0.7347,
+        semantic_score=0.7347,
     )
 
     evidence = EvidenceSelection(

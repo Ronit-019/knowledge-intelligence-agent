@@ -20,10 +20,13 @@ from services.knowledge_base_service import (
 from services.knowledge_query_service import (
     KnowledgeQueryService,
 )
-from services.prompt_builder import PromptBuilder
-from services.retrieval_service import RetrievalService
 from services.llm.groq_provider import GroqProvider
-
+from services.prompt_builder import PromptBuilder
+from services.reranking_service import RerankingService
+from services.retrieval_service import RetrievalService
+from services.conversation_service import (
+    ConversationContextService,
+)
 
 @dataclass(frozen=True)
 class KnowledgeApplication:
@@ -39,10 +42,6 @@ def build_knowledge_application() -> KnowledgeApplication:
     """
     Build the complete knowledge intelligence application.
     """
-
-    # ---------------------------------------------------------
-    # Project paths
-    # ---------------------------------------------------------
 
     project_root = Path(
         __file__
@@ -110,6 +109,16 @@ def build_knowledge_application() -> KnowledgeApplication:
     retrieval_service = RetrievalService(
         embedding_service=embedding_service,
         vector_store=knowledge_base.vector_store,
+        top_k=settings.top_k,
+    )
+
+    # ---------------------------------------------------------
+    # Cross-Encoder Reranking
+    # ---------------------------------------------------------
+
+    reranking_service = RerankingService(
+        top_k=settings.rerank_top_k,
+        min_rerank_score=settings.min_rerank_score,
     )
 
     # ---------------------------------------------------------
@@ -127,6 +136,12 @@ def build_knowledge_application() -> KnowledgeApplication:
         model_name=settings.llm_model,
     )
 
+    conversation_context_service = (
+        ConversationContextService(
+            llm_provider=llm_provider,
+        )
+    )
+
     prompt_builder = PromptBuilder()
 
     answer_generation_service = AnswerGenerationService(
@@ -142,6 +157,8 @@ def build_knowledge_application() -> KnowledgeApplication:
         retrieval_service=retrieval_service,
         evidence_selector=evidence_selector,
         answer_generation_service=answer_generation_service,
+        reranking_service=reranking_service,
+        conversation_context_service=conversation_context_service,
     )
 
     return KnowledgeApplication(

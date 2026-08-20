@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 from langchain_core.documents import Document
 
+from config.settings import settings
 from retrieval.vector_store import VectorStore
 from services.embedding_service import EmbeddingService
 
@@ -10,10 +11,30 @@ from services.embedding_service import EmbeddingService
 class RetrievalResult:
     """
     Represents one retrieved piece of evidence.
+
+    semantic_score is the similarity score produced by the
+    vector-search layer. It is intentionally kept separate from
+    any cross-encoder reranking score.
     """
 
     document: Document
-    score: float
+    semantic_score: float
+    rerank_score: float | None = None
+
+    @property
+    def score(self) -> float:
+        """
+        Backward-compatible score property.
+
+        Before reranking, this represents the semantic score.
+        After reranking, callers should use rerank_score when
+        available.
+        """
+
+        if self.rerank_score is not None:
+            return self.rerank_score
+
+        return self.semantic_score
 
     @property
     def chunk_id(self) -> str:
@@ -42,14 +63,21 @@ class RetrievalResult:
 
 class RetrievalService:
     """
-    Version-aware retrieval layer.
+    Version-aware semantic retrieval layer.
 
-    Responsibilities:
-    - Convert queries into embeddings
-    - Search the vector store
-    - Apply similarity thresholds
-    - Exclude superseded documents
-    - Return traceable evidence
+    Pipeline:
+
+        Query
+          ↓
+        Query Embedding
+          ↓
+        FAISS Candidate Retrieval
+          ↓
+        Similarity Filtering
+          ↓
+        Active-Version Filtering
+          ↓
+        Top-K Evidence
     """
 
     def __init__(
@@ -57,31 +85,54 @@ class RetrievalService:
         embedding_service: EmbeddingService,
         vector_store: VectorStore,
         similarity_threshold: float = 0.65,
+        top_k: int | None = None,
     ):
         if not 0 <= similarity_threshold <= 1:
             raise ValueError(
                 "similarity_threshold must be between 0 and 1."
             )
 
+        resolved_top_k = (
+            top_k
+            if top_k is not None
+            else settings.top_k
+        )
+
+        if resolved_top_k <= 0:
+            raise ValueError(
+                "top_k must be greater than zero."
+            )
+
         self.embedding_service = embedding_service
         self.vector_store = vector_store
         self.similarity_threshold = similarity_threshold
+        self.top_k = resolved_top_k
 
     def search(
         self,
         query: str,
-        top_k: int = 5,
+        top_k: int | None = None,
     ) -> list[RetrievalResult]:
         """
         Retrieve relevant, active evidence for a query.
+
+        If top_k is omitted, the configured TOP_K value is used.
         """
 
         query = query.strip()
 
         if not query:
-            raise ValueError("Query cannot be empty.")
+            raise ValueError(
+                "Query cannot be empty."
+            )
 
-        if top_k <= 0:
+        resolved_top_k = (
+            top_k
+            if top_k is not None
+            else self.top_k
+        )
+
+        if resolved_top_k <= 0:
             raise ValueError(
                 "top_k must be greater than zero."
             )
@@ -90,40 +141,49 @@ class RetrievalService:
             self.embedding_service.embed_text(query)
         )
 
-        # Retrieve extra candidates because some may be
-        # removed by thresholding or document-status filtering.
-        candidate_k = max(top_k * 3, 10)
+        # Retrieve additional candidates because some may
+        # be removed by similarity or status filtering.
+        candidate_k = max(
+            resolved_top_k * 3,
+            10,
+        )
 
         results = self.vector_store.search(
             query_embedding=query_embedding,
             top_k=candidate_k,
         )
 
-        filtered_results = []
+        filtered_results: list[RetrievalResult] = []
 
         for document, score in results:
 
-            # Semantic relevance check
+            # -------------------------------------------------
+            # Similarity filtering
+            # -------------------------------------------------
+
             if score < self.similarity_threshold:
                 continue
 
-            # Current knowledge-base state check
+            # -------------------------------------------------
+            # Active document filtering
+            # -------------------------------------------------
+
             status = document.metadata.get(
                 "status",
-                ""
+                "",
             ).strip().lower()
 
-            if status == "superseded":
+            if status != "active":
                 continue
 
             filtered_results.append(
                 RetrievalResult(
                     document=document,
-                    score=score,
+                    semantic_score=float(score),
                 )
             )
 
-            if len(filtered_results) >= top_k:
+            if len(filtered_results) >= resolved_top_k:
                 break
 
         return filtered_results
@@ -131,7 +191,7 @@ class RetrievalService:
     def has_evidence(
         self,
         query: str,
-        top_k: int = 5,
+        top_k: int | None = None,
     ) -> bool:
         """
         Check whether sufficient current evidence exists.

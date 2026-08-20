@@ -1,7 +1,9 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
-
+from services.conversation_service import (
+    ConversationMessage,
+)
 from api.dependencies import (
     KnowledgeApplication,
     build_knowledge_application,
@@ -83,8 +85,17 @@ def query(
         )
 
     try:
+        history = [
+            ConversationMessage(
+                role=message.role,
+                content=message.content,
+            )
+            for message in request.history
+        ]
+
         result = application.query_service.ask(
-            request.query
+            query=request.query,
+            history=history,
         )
 
     except ValueError as exc:
@@ -104,7 +115,8 @@ def query(
                 title=source.title,
                 version=source.version,
                 page=source.page,
-                score=source.score,
+                semantic_score=source.semantic_score,
+                rerank_score=source.rerank_score,
                 chunk_id=source.chunk_id,
             )
             for source in result.sources.results

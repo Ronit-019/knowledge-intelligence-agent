@@ -53,6 +53,12 @@ class Settings:
             "LOG_LEVEL",
             "INFO",
         )
+        self.min_rerank_score = float(
+            os.getenv(
+                "MIN_RERANK_SCORE",
+                "-3.0",
+            )
+        )
 
     @staticmethod
     def _required(name: str) -> str:

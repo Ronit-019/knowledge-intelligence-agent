@@ -1,3 +1,5 @@
+import math
+
 import faiss
 import numpy as np
 
@@ -17,8 +19,13 @@ class VectorStore:
     """
 
     def __init__(self, dimension: int):
+        if not isinstance(dimension, int):
+            raise TypeError("Embedding dimension must be an integer.")
+
         if dimension <= 0:
-            raise ValueError("Embedding dimension must be positive.")
+            raise ValueError(
+                "Embedding dimension must be positive."
+            )
 
         self.dimension = dimension
 
@@ -33,25 +40,46 @@ class VectorStore:
         embeddings: list[list[float]],
         documents: list[Document],
     ) -> None:
-        """Add document embeddings to the vector index."""
+        """
+        Add document embeddings to the vector index.
+        """
 
         if not embeddings:
-            raise ValueError("Cannot add empty embeddings.")
+            raise ValueError(
+                "Cannot add empty embeddings."
+            )
+
+        if not documents:
+            raise ValueError(
+                "Cannot add embeddings without documents."
+            )
 
         if len(embeddings) != len(documents):
             raise ValueError(
-                "Number of embeddings must match number of documents."
+                "Number of embeddings must match "
+                "number of documents."
             )
 
-        vectors = np.array(
+        vectors = np.asarray(
             embeddings,
             dtype="float32",
         )
 
-        if vectors.ndim != 2 or vectors.shape[1] != self.dimension:
+        if vectors.ndim != 2:
             raise ValueError(
-                f"Expected vectors with dimension {self.dimension}, "
+                "Embeddings must be a two-dimensional matrix."
+            )
+
+        if vectors.shape[1] != self.dimension:
+            raise ValueError(
+                f"Expected vectors with dimension "
+                f"{self.dimension}, "
                 f"received shape {vectors.shape}."
+            )
+
+        if not np.isfinite(vectors).all():
+            raise ValueError(
+                "Embeddings contain non-finite values."
             )
 
         self.index.add(vectors)
@@ -70,41 +98,88 @@ class VectorStore:
         """
 
         if not self.documents:
-            raise ValueError("Vector store is empty.")
+            raise ValueError(
+                "Vector store is empty."
+            )
+
+        if not isinstance(top_k, int):
+            raise TypeError(
+                "top_k must be an integer."
+            )
 
         if top_k <= 0:
-            raise ValueError("top_k must be greater than zero.")
+            raise ValueError(
+                "top_k must be greater than zero."
+            )
 
-        query = np.array(
+        query = np.asarray(
             [query_embedding],
             dtype="float32",
         )
 
+        if query.ndim != 2:
+            raise ValueError(
+                "Query embedding must be a one-dimensional vector."
+            )
+
         if query.shape[1] != self.dimension:
             raise ValueError(
-                f"Expected query dimension {self.dimension}, "
+                f"Expected query dimension "
+                f"{self.dimension}, "
                 f"received {query.shape[1]}."
             )
 
-        actual_k = min(top_k, len(self.documents))
+        if not np.isfinite(query).all():
+            raise ValueError(
+                "Query embedding contains non-finite values."
+            )
+
+        actual_k = min(
+            top_k,
+            self.size,
+        )
 
         scores, indices = self.index.search(
             query,
             actual_k,
         )
 
-        results = []
+        results: list[tuple[Document, float]] = []
 
-        for score, index in zip(scores[0], indices[0]):
+        for score, index in zip(
+            scores[0],
+            indices[0],
+        ):
+            # FAISS can return -1 for missing neighbours
+            # in some index configurations.
+            if index < 0:
+                continue
+
+            score = float(score)
+
+            if not math.isfinite(score):
+                continue
+
             document = self.documents[int(index)]
+
             results.append(
-                (document, float(score))
+                (document, score)
             )
 
         return results
 
+    def clear(self) -> None:
+        """
+        Remove all indexed vectors and documents.
+        """
+
+        self.index.reset()
+        self.documents.clear()
+
     @property
     def size(self) -> int:
-        """Return number of indexed documents."""
+        """
+        Return number of indexed documents.
+        """
 
         return self.index.ntotal

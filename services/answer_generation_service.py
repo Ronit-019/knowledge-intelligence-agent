@@ -18,11 +18,6 @@ class GeneratedAnswer:
 
     @property
     def source_count(self) -> int:
-        """
-        Return the number of evidence sources used
-        to generate the answer.
-        """
-
         return self.sources.count
 
 
@@ -31,7 +26,7 @@ class AnswerGenerationService:
     Generates grounded answers using an LLM.
 
     The LLM receives only evidence selected by the
-    retrieval pipeline.
+    retrieval and reranking pipeline.
     """
 
     def __init__(
@@ -46,6 +41,7 @@ class AnswerGenerationService:
         self,
         query: str,
         evidence: EvidenceSelection,
+        history=None,
     ) -> GeneratedAnswer:
 
         query = query.strip()
@@ -55,25 +51,51 @@ class AnswerGenerationService:
                 "Query cannot be empty."
             )
 
+        # -----------------------------------------------------
+        # No evidence = abstain
+        # -----------------------------------------------------
+
         if evidence.count == 0:
             return GeneratedAnswer(
                 query=query,
                 answer=(
-                    "I couldn't find enough information in the "
-                    "available documents to answer this question."
+                    "I couldn't find enough reliable information "
+                    "in the available documents to answer this question."
                 ),
                 grounded=False,
                 sources=evidence,
             )
 
+        # -----------------------------------------------------
+        # Build grounded prompt
+        # -----------------------------------------------------
+
         prompt = self.prompt_builder.build(
             query=query,
             evidence=evidence,
+            history=history,
         )
+
+        # -----------------------------------------------------
+        # Generate answer
+        # -----------------------------------------------------
 
         answer = self.llm_provider.generate(
             prompt
         )
+
+        answer = answer.strip()
+
+        if not answer:
+            return GeneratedAnswer(
+                query=query,
+                answer=(
+                    "I couldn't generate a reliable answer "
+                    "from the available evidence."
+                ),
+                grounded=False,
+                sources=evidence,
+            )
 
         return GeneratedAnswer(
             query=query,

@@ -52,7 +52,7 @@ def main():
 
     retrieval_result = RetrievalResult(
         document=chunk,
-        score=0.95,
+        semantic_score=0.95,
     )
 
     evidence = EvidenceSelection(

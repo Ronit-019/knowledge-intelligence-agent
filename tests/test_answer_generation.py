@@ -41,7 +41,7 @@ def build_evidence() -> EvidenceSelection:
 
     result = RetrievalResult(
         document=document,
-        score=0.7347,
+        semantic_score=0.7347,
     )
 
     return EvidenceSelection(

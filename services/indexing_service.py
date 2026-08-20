@@ -2,8 +2,8 @@ from dataclasses import dataclass
 
 from langchain_core.documents import Document
 
-from services.embedding_service import EmbeddingService
 from retrieval.vector_store import VectorStore
+from services.embedding_service import EmbeddingService
 
 
 @dataclass(frozen=True)
@@ -21,7 +21,8 @@ class IndexingService:
     Builds a searchable vector index from document chunks.
 
     Responsibilities:
-    - Generate embeddings for chunks
+    - Validate chunks
+    - Generate embeddings
     - Add embeddings to the vector store
     - Keep indexing logic separate from retrieval logic
     """
@@ -47,6 +48,19 @@ class IndexingService:
                 "Cannot index an empty document collection."
             )
 
+        for index, document in enumerate(documents):
+            if not isinstance(document, Document):
+                raise TypeError(
+                    f"Item at index {index} is not a "
+                    "LangChain Document."
+                )
+
+            if not document.page_content.strip():
+                raise ValueError(
+                    f"Document at index {index} "
+                    "contains empty content."
+                )
+
         texts = [
             document.page_content
             for document in documents
@@ -56,6 +70,12 @@ class IndexingService:
             texts
         )
 
+        if len(embeddings) != len(documents):
+            raise RuntimeError(
+                "Embedding service returned a different "
+                "number of embeddings than documents."
+            )
+
         self.vector_store.add(
             embeddings=embeddings,
             documents=documents,
@@ -63,5 +83,7 @@ class IndexingService:
 
         return IndexingResult(
             documents_indexed=len(documents),
-            embedding_dimension=self.embedding_service.dimension,
+            embedding_dimension=(
+                self.embedding_service.dimension
+            ),
         )

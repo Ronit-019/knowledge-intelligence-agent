@@ -1,5 +1,12 @@
 from pydantic import BaseModel, Field, field_validator
+from typing import Literal
 
+class ConversationMessage(BaseModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(
+        ...,
+        min_length=1,
+    )
 
 class QueryRequest(BaseModel):
     """
@@ -10,9 +17,11 @@ class QueryRequest(BaseModel):
         ...,
         min_length=1,
         description="Question to ask the knowledge base.",
-        examples=[
-            "How long can an employee work from another country?"
-        ],
+    )
+
+    history: list[ConversationMessage] = Field(
+        default_factory=list,
+        description="Previous conversation messages.",
     )
 
     @field_validator("query")
@@ -21,6 +30,7 @@ class QueryRequest(BaseModel):
         cls,
         value: str,
     ) -> str:
+
         value = value.strip()
 
         if not value:
@@ -34,13 +44,21 @@ class QueryRequest(BaseModel):
 class SourceResponse(BaseModel):
     """
     Traceable evidence source returned with an answer.
+
+    semantic_score:
+        Similarity produced by vector retrieval.
+
+    rerank_score:
+        Relevance score produced by the cross-encoder.
+        None when reranking was not applied.
     """
 
     document_id: str
     title: str
     version: str
     page: int
-    score: float
+    semantic_score: float
+    rerank_score: float | None
     chunk_id: str
 
 

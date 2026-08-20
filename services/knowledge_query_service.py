@@ -1,66 +1,66 @@
-from dataclasses import dataclass
-
-from services.evidence_selector import EvidenceSelection
 from services.answer_generation_service import (
     AnswerGenerationService,
 )
-
-
-@dataclass(frozen=True)
-class KnowledgeQueryResult:
-    """
-    Represents the final result of a knowledge-base query.
-    """
-
-    query: str
-    answer: str
-    grounded: bool
-    sources: EvidenceSelection
-
-    @property
-    def source_count(self) -> int:
-        """
-        Return the number of evidence sources used.
-        """
-
-        return self.sources.count
+from services.conversation_service import (
+    ConversationContextService,
+    ConversationMessage,
+)
+from services.evidence_selector import (
+    EvidenceSelector,
+)
+from services.retrieval_service import (
+    RetrievalService,
+)
+from services.reranking_service import (
+    RerankingService,
+)
 
 
 class KnowledgeQueryService:
     """
-    Orchestrates the complete knowledge query pipeline.
+    Orchestrates the complete knowledge-query pipeline.
 
-    Flow:
+    Pipeline:
 
-        Query
-          ↓
-        Retrieval
-          ↓
+        Conversation
+              ↓
+        Query contextualization
+              ↓
+        Semantic Retrieval
+              ↓
+        Cross-Encoder Reranking
+              ↓
         Evidence Selection
-          ↓
-        Answer Generation
-          ↓
-        KnowledgeQueryResult
+              ↓
+        Grounded Answer Generation
     """
 
     def __init__(
         self,
-        retrieval_service,
-        evidence_selector,
+        retrieval_service: RetrievalService,
+        evidence_selector: EvidenceSelector,
         answer_generation_service: AnswerGenerationService,
+        reranking_service: RerankingService | None = None,
+        conversation_context_service: ConversationContextService | None = None,
     ):
         self.retrieval_service = retrieval_service
         self.evidence_selector = evidence_selector
         self.answer_generation_service = (
             answer_generation_service
         )
+        self.reranking_service = reranking_service
+        self.conversation_context_service = (
+            conversation_context_service
+        )
 
     def ask(
         self,
         query: str,
-    ) -> KnowledgeQueryResult:
+        history: list[ConversationMessage] | None = None,
+    ):
         """
-        Answer a user question using the knowledge base.
+        Answer a question using conversation context,
+        retrieved evidence, reranking and grounded generation.
         """
 
         query = query.strip()
@@ -70,28 +70,58 @@ class KnowledgeQueryService:
                 "Query cannot be empty."
             )
 
-        # 1. Retrieve relevant evidence.
-        retrieval_results = self.retrieval_service.search(
-            query=query,
-        )
+        history = history or []
 
-        # 2. Select the final evidence.
-        evidence = self.evidence_selector.select(
-            retrieval_results,
-        )
+        # -----------------------------------------------------
+        # 1. Contextualize conversational query
+        # -----------------------------------------------------
 
-        # 3. Generate the grounded answer.
-        generated_answer = (
-            self.answer_generation_service.generate(
-                query=query,
-                evidence=evidence,
+        retrieval_query = query
+
+        if self.conversation_context_service is not None:
+            retrieval_query = (
+                self.conversation_context_service.contextualize(
+                    query=query,
+                    history=history,
+                )
+            )
+
+        # -----------------------------------------------------
+        # 2. Semantic retrieval
+        # -----------------------------------------------------
+
+        retrieval_results = (
+            self.retrieval_service.search(
+                query=retrieval_query,
             )
         )
 
-        # 4. Return the application-level result.
-        return KnowledgeQueryResult(
+        # -----------------------------------------------------
+        # 3. Cross-encoder reranking
+        # -----------------------------------------------------
+
+        if self.reranking_service is not None:
+            retrieval_results = (
+                self.reranking_service.rerank(
+                    query=retrieval_query,
+                    results=retrieval_results,
+                )
+            )
+
+        # -----------------------------------------------------
+        # 4. Evidence selection
+        # -----------------------------------------------------
+
+        evidence = self.evidence_selector.select(
+            retrieval_results
+        )
+
+        # -----------------------------------------------------
+        # 5. Grounded answer generation
+        # -----------------------------------------------------
+
+        return self.answer_generation_service.generate(
             query=query,
-            answer=generated_answer.answer,
-            grounded=generated_answer.grounded,
-            sources=generated_answer.sources,
+            evidence=evidence,
+            history=history,
         )

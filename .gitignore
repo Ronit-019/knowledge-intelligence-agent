@@ -55,5 +55,3 @@ data/tmp/
 # Secrets
 *.pem
 *.key
-
-data/knowledge_base/
