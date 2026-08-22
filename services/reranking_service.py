@@ -113,7 +113,12 @@ class RerankingService:
             for result in results
         ]
 
-        scores = model.predict(pairs)
+        if self.model is None:
+            self.model = CrossEncoder(self.model_name)
+
+        scores = self.model.predict(
+            pairs
+        )
 
         reranked = [
             RetrievalResult(

@@ -49,6 +49,7 @@ Content:
         formatted_evidence = "\n\n".join(
             evidence_blocks
         )
+
         history_text = ""
 
         if history:
@@ -58,35 +59,40 @@ Content:
                 f"{message.role.upper()}: {message.content}"
                 for message in recent_history
             )
-            return f"""
-            You are a knowledge intelligence assistant.
 
-            Answer the user's question using ONLY the evidence provided below.
+        # IMPORTANT:
+        # Prompt must be returned regardless of whether
+        # conversation history exists.
 
-            Conversation history is provided only to understand
-            references and context. Conversation history is NOT evidence.
+        return f"""
+You are a knowledge intelligence assistant.
 
-            GROUNDING RULES:
-            1. Do not use outside knowledge.
-            2. Do not invent or assume information.
-            3. If the evidence does not contain enough information to answer the question,
-            clearly say that the available documents do not contain enough information.
-            4. Preserve important numbers, dates, limits, requirements, and conditions
-            exactly as supported by the evidence.
-            5. When the evidence contains conflicting versions, prefer the evidence
-            marked as active.
-            6. Use conversation history only to understand what the user is referring to.
-            7. Do not treat previous assistant answers as authoritative facts.
-            8. Give a concise answer directly addressing the user's latest question.
+Answer the user's question using ONLY the evidence provided below.
 
-            CONVERSATION HISTORY:
-            {history_text if history_text else "No previous conversation."}
+Conversation history is provided only to understand
+references and context. Conversation history is NOT evidence.
 
-            USER'S LATEST QUESTION:
-            {query}
+GROUNDING RULES:
+1. Do not use outside knowledge.
+2. Do not invent or assume information.
+3. If the evidence does not contain enough information to answer the question,
+   clearly say that the available documents do not contain enough information.
+4. Preserve important numbers, dates, limits, requirements, and conditions
+   exactly as supported by the evidence.
+5. When the evidence contains conflicting versions, prefer the evidence
+   marked as active.
+6. Use conversation history only to understand what the user is referring to.
+7. Do not treat previous assistant answers as authoritative facts.
+8. Give a concise answer directly addressing the user's latest question.
 
-            RETRIEVED EVIDENCE:
-            {formatted_evidence}
+CONVERSATION HISTORY:
+{history_text if history_text else "No previous conversation."}
 
-            ANSWER:
-            """.strip()
+USER'S LATEST QUESTION:
+{query}
+
+RETRIEVED EVIDENCE:
+{formatted_evidence}
+
+ANSWER:
+""".strip()

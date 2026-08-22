@@ -1,13 +1,16 @@
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
+
 from services.conversation_service import (
     ConversationMessage,
 )
+
 from api.dependencies import (
     KnowledgeApplication,
     build_knowledge_application,
 )
+
 from api.schemas import (
     DocumentResponse,
     DocumentsResponse,
@@ -21,13 +24,13 @@ from api.schemas import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """
-    Initialize the knowledge intelligence application
-    when the API starts.
+    Start the API without eagerly building the knowledge base.
+
+    The knowledge application is initialized lazily on the
+    first request that actually needs it.
     """
 
-    app.state.knowledge_application = (
-        build_knowledge_application()
-    )
+    app.state.knowledge_application = None
 
     yield
 
@@ -46,13 +49,37 @@ app = FastAPI(
 )
 
 
+def get_knowledge_application(
+    http_request: Request,
+) -> KnowledgeApplication:
+    """
+    Lazily initialize the knowledge intelligence application
+    on the first request that requires it.
+    """
+
+    application = getattr(
+        http_request.app.state,
+        "knowledge_application",
+        None,
+    )
+
+    if application is None:
+        application = build_knowledge_application()
+
+        http_request.app.state.knowledge_application = (
+            application
+        )
+
+    return application
+
+
 @app.get(
     "/health",
     response_model=HealthResponse,
 )
 def health() -> HealthResponse:
     """
-    API health check.
+    Lightweight API health check.
     """
 
     return HealthResponse(
@@ -72,19 +99,11 @@ def query(
     Ask a question against the active knowledge base.
     """
 
-    application: KnowledgeApplication | None = getattr(
-        http_request.app.state,
-        "knowledge_application",
-        None,
-    )
-
-    if application is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Knowledge base is not initialized.",
+    try:
+        application = get_knowledge_application(
+            http_request
         )
 
-    try:
         history = [
             ConversationMessage(
                 role=message.role,
@@ -136,17 +155,16 @@ def documents(
     in the knowledge base.
     """
 
-    application: KnowledgeApplication | None = getattr(
-        http_request.app.state,
-        "knowledge_application",
-        None,
-    )
-
-    if application is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Knowledge base is not initialized.",
+    try:
+        application = get_knowledge_application(
+            http_request
         )
+
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=str(exc),
+        ) from exc
 
     active_documents = (
         application.knowledge_base.documents
