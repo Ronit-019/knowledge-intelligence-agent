@@ -1,7 +1,6 @@
 import sys
 from pathlib import Path
-from api.dependencies import build_knowledge_application
-from services.conversation_service import ConversationMessage
+
 import streamlit as st
 
 
@@ -16,6 +15,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 
 from api.dependencies import build_knowledge_application
+from services.conversation_service import ConversationMessage
 
 
 # ============================================================
